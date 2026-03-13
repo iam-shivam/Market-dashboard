@@ -58,7 +58,7 @@ cd backend-python
 pip install -r requirements.txt
 cp .env.example .env          # fill in KITE_API_KEY + KITE_API_SECRET
 python get_token.py           # run ONCE each morning
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 4000
 
 # Terminal 2 — Node.js (Auth)
 cd backend-node
