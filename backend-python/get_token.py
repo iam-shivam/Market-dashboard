@@ -38,4 +38,4 @@ set_key(".env", "ACCESS_TOKEN", access_token, quote_mode="never")
 
 print(f"\n✅ Access token saved to .env")
 print(f"   Token: {access_token[:20]}...")
-print(f"\nNow run: uvicorn main:app --reload --port 8000\n")
+print(f"\nNow run: uvicorn main:app --reload --port 4000\n")

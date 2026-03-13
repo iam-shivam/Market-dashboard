@@ -2,7 +2,8 @@
 // All network calls live here. Components never call fetch() directly.
 // Centralising means: if the URL changes, you update ONE file, not 20 components.
 
-import type { LoginResponse, OIApiResponse } from "../types/oi";
+// import type { LoginResponse, OIApiResponse } from "../types/oi";
+import type { OIApiResponse } from "../types/oi";
 
 // import type { LoginResponse, OIApiResponse } from "@/types/oi";
 
@@ -41,20 +42,20 @@ async function handle<T>(res: Response): Promise<T> {
 // ── Auth endpoints ────────────────────────────────────────────────
 
 // POST /auth/login
-export async function apiLogin(email: string, password: string): Promise<LoginResponse> {
-  const res = await fetch(`${BASE}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  return handle<LoginResponse>(res);
-}
+// export async function apiLogin(email: string, password: string): Promise<LoginResponse> {
+//   const res = await fetch(`${BASE}/auth/login`, {
+//     method: "POST",
+//     headers: { "Content-Type": "application/json" },
+//     body: JSON.stringify({ email, password }),
+//   });
+//   return handle<LoginResponse>(res);
+// }
 
-// GET /auth/verify — called on page load to check if stored token still works
-export async function apiVerify(): Promise<{ valid: boolean; user: any }> {
-  const res = await fetch(`${BASE}/auth/verify`, { headers: authHeaders() });
-  return handle(res);
-}
+// // GET /auth/verify — called on page load to check if stored token still works
+// export async function apiVerify(): Promise<{ valid: boolean; user: any }> {
+//   const res = await fetch(`${BASE}/auth/verify`, { headers: authHeaders() });
+//   return handle(res);
+// }
 
 // ── OI data endpoints ─────────────────────────────────────────────
 
@@ -62,7 +63,14 @@ export async function apiVerify(): Promise<{ valid: boolean; user: any }> {
 export async function apiFetchOI(symbol: string, expiry: string): Promise<OIApiResponse> {
   const params = new URLSearchParams({ symbol, expiry });
   const res = await fetch(`${BASE}/api/oi?${params}`, { headers: authHeaders() });
-  return handle<OIApiResponse>(res);
+  // return handle<OIApiResponse>(res);
+  if (!res.ok) {
+    throw new Error("API request failed");
+  }
+
+  const data = await res.json();
+  console.log("API response:", data);
+  return data 
 }
 
 // GET /api/expiries?symbol=NIFTY

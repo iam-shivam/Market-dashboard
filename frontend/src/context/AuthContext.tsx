@@ -8,12 +8,12 @@
 import  {
   createContext,
   useContext,
-  useState,
   useEffect,
+  useState,
+  // useEffect,
  type ReactNode,
 } from "react";
 import type { User } from "../types/oi";
-import { apiLogin, apiVerify } from "../api";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -36,35 +36,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken]     = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // On first load: check if there's a stored token and if it's still valid
+  // Check existing login
   useEffect(() => {
-    const stored = localStorage.getItem("oi_token");
-    if (!stored) {
-      setIsLoading(false);
-      return;
+
+    const token = localStorage.getItem("token");
+
+    if (token) {
+      const savedUser = localStorage.getItem("user");
+
+      if (savedUser) {
+        setUser(JSON.parse(savedUser));
+      }
     }
-    apiVerify()
-      .then(({ valid, user: u }) => {
-        if (valid && u) {
-          setToken(stored);
-          setUser(u as User);
-        } else {
-          localStorage.removeItem("oi_token");
-        }
-      })
-      .catch(() => localStorage.removeItem("oi_token"))
-      .finally(() => setIsLoading(false));
+
+    // IMPORTANT
+    setIsLoading(false);
+
   }, []);
 
-  const login = async (email: string, password: string): Promise<void> => {
-    const { token: t, user: u } = await apiLogin(email, password);
-    localStorage.setItem("oi_token", t);
-    setToken(t);
-    setUser(u);
-  };
+  const login = async (email: string, password: string) => {
+
+  const res = await fetch("http://localhost:4000/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ email, password })
+  });
+
+  if (!res.ok) {
+    throw new Error("Invalid credentials");
+  }
+
+  const data = await res.json();
+
+  localStorage.setItem("token", data.token);
+  localStorage.setItem("user", JSON.stringify(data.user));
+
+  setUser(data.user);
+};
+
 
   const logout = (): void => {
-    localStorage.removeItem("oi_token");
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
     setToken(null);
     setUser(null);
   };

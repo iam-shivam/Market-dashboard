@@ -2,7 +2,7 @@
 // Main dashboard page. Reads data from useOIData hook and renders the table.
 // Instrument selector, expiry dropdown, PCR stats, filter bar, OI table.
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useOIData } from "../hooks/useOIData";
 import type { InstrumentSymbol, Interpretation, OIRow } from "../types/oi";
@@ -114,8 +114,10 @@ export default function Dashboard() {
   const {
     rows, expiries, expiry, isLoading, error, lastUpdated,
     autoRefresh, filter,
+    marketCEOI, marketPEOI, marketPCR,
     setExpiry, setFilter, setAutoRefresh, refresh,
-    totalCEOI, totalPEOI, pcrOI, pcrVol, maxCEOI, maxPEOI,
+    totalCEOI, totalPEOI, pcrOI, maxCEOI, maxPEOI,
+    support, resistance,
   } = useOIData(instrument);
 
   const cfg   = INSTRUMENTS[instrument];
@@ -142,6 +144,65 @@ export default function Dashboard() {
       {val}
     </span>
   );
+
+  // ── Row component (prevents full table re-render) ─────────────
+  const OptionRow = React.memo(
+    ({ row }: { row: OIRow }) => {
+    const atm = row.isATM;
+    const bg = row.strike === support ? "#064e3b" : row.strike === resistance ? "#7f1d1d" : atm ? "#14532d" : "transparent";
+
+    return (
+      <tr ref={row.isATM ? atmRef : null} style={{ background: bg }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "#051422")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = bg)}>
+
+        {/* CE side */}
+        <TD><Badge val={row.CE_TREND} color={row.CE_TREND === "UP" ? "#22c55e" : "#ef4444"} /></TD>
+        <TD><span style={{ color: INTERP_COLORS[row.CE_INTERPRETATION], fontSize: 9.5, fontWeight: 700 }}>{row.CE_INTERPRETATION}</span></TD>
+        <TD style={{ color: "#64748b" }}>{row.CE_SPREAD}</TD>
+        <TD style={{ color: "#ef444488" }}>{fmt(row.CE_ASK_QTY)}</TD>
+        <TD style={{ color: "#ef4444", fontWeight: 600 }}>{row.CE_ASK}</TD>
+        <TD style={{ color: "#22c55e", fontWeight: 600 }}>{row.CE_BID}</TD>
+        <TD style={{ color: "#22c55e88" }}>{fmt(row.CE_BID_QTY)}</TD>
+        <TD style={{ textAlign: "left" }}><OIBar val={row.CE_OI} max={maxCEOI} color="#3b82f6" /></TD>
+        <TD style={{ color: chgColor(row.CE_CHG_OI) }}>{fmt(row.CE_CHG_OI)}</TD>
+        <TD style={{ color: chgColor(row.CE_CHG_PCT) }}>{fmtPct(row.CE_CHG_PCT)}</TD>
+        <TD style={{ color: "#64748b" }}>{fmt(row.CE_VOL)}</TD>
+        <TD style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 12 }}>{row.CE_LTP}</TD>
+
+        {/* Strike */}
+        <td style={{ padding: "4px 10px", textAlign: "center", fontWeight: 700, fontSize: 12, background: atm ? "#22c55e" : "#0f2744", color: atm ? "#020b18" : color, borderLeft: `1px solid ${color}33`, borderRight: `1px solid ${color}33`, borderBottom: "1px solid #060f1e", whiteSpace: "nowrap" }}>
+          {atm ? "★ " : ""}{fmt(row.strike)}
+        </td>
+
+        {/* PE side */}
+        <TD style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 12 }}>{row.PE_LTP}</TD>
+        <TD style={{ color: "#64748b" }}>{fmt(row.PE_VOL)}</TD>
+        <TD style={{ color: chgColor(row.PE_CHG_PCT) }}>{fmtPct(row.PE_CHG_PCT)}</TD>
+        <TD style={{ color: chgColor(row.PE_CHG_OI) }}>{fmt(row.PE_CHG_OI)}</TD>
+        <TD style={{ textAlign: "right" }}><OIBar val={row.PE_OI} max={maxPEOI} color="#a78bfa" /></TD>
+        <TD style={{ color: "#22c55e88" }}>{fmt(row.PE_BID_QTY)}</TD>
+        <TD style={{ color: "#22c55e", fontWeight: 600 }}>{row.PE_BID}</TD>
+        <TD style={{ color: "#ef4444", fontWeight: 600 }}>{row.PE_ASK}</TD>
+        <TD style={{ color: "#ef444488" }}>{fmt(row.PE_ASK_QTY)}</TD>
+        <TD style={{ color: "#64748b" }}>{row.PE_SPREAD}</TD>
+        <TD><span style={{ color: INTERP_COLORS[row.PE_INTERPRETATION], fontSize: 9.5, fontWeight: 700 }}>{row.PE_INTERPRETATION}</span></TD>
+        <TD><Badge val={row.PE_TREND} color={row.PE_TREND === "UP" ? "#22c55e" : "#ef4444"} /></TD>
+      </tr>
+    );
+  },(prev,next) => prev.row === next.row);
+
+  // Scroll to the ATM row
+  const atmRef = useRef<HTMLTableRowElement | null>(null);
+
+  useEffect(() => {
+    if (atmRef.current) {
+      atmRef.current.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    }
+  }, [rows]);
 
   // ── Render ────────────────────────────────────────────────────
   return (
@@ -194,11 +255,16 @@ export default function Dashboard() {
       {/* ── PCR Stats Bar ──────────────────────────────────────── */}
       <div style={{ background: "#030d1a", borderBottom: "1px solid #0a1f35", padding: "8px 20px", display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
         {[
-          ["TOTAL CE OI", fmt(totalCEOI), "#3b82f6"],
-          ["TOTAL PE OI", fmt(totalPEOI), "#a78bfa"],
-          ["PCR (OI)",  pcrOI.toFixed(2),  pcrOI  > 1 ? "#22c55e" : "#ef4444"],
-          ["PCR (VOL)", pcrVol.toFixed(2), pcrVol > 1 ? "#22c55e" : "#ef4444"],
-          ["LOT SIZE",  cfg.lotSize,       "#94a3b8"],
+          ["VISIBLE CE OI", fmt(totalCEOI), "#3b82f6"],
+          ["VISIBLE PE OI", fmt(totalPEOI), "#a78bfa"],
+
+          ["MARKET CE OI", fmt(marketCEOI ?? 0), "#22c55e"],
+          ["MARKET PE OI", fmt(marketPEOI ?? 0), "#f97316"],
+
+          ["PCR (VISIBLE)", pcrOI.toFixed(2), pcrOI > 1 ? "#22c55e" : "#ef4444"],
+          ["PCR (MARKET)", (marketPCR ?? 0).toFixed(2), "#f59e0b"],
+
+          ["LOT SIZE", cfg.lotSize, "#94a3b8"],
         ].map(([label, val, col]) => (
           <div key={String(label)} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
             <span style={{ fontSize: 9, color: "#334155", letterSpacing: 1.5 }}>{label}</span>
@@ -247,49 +313,9 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row: OIRow) => {
-                // const atm = row.isATM as unknown as boolean;
-                const atm = (row as { isATM?: boolean })?.isATM as unknown as boolean;
-                return (
-                  <tr key={row.strike} style={{ background: atm ? "#0a2010" : "transparent" }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "#051422")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = atm ? "#0a2010" : "transparent")}>
-
-                    {/* CE side */}
-                    <TD><Badge val={row.CE_TREND} color={row.CE_TREND === "UP" ? "#22c55e" : "#ef4444"} /></TD>
-                    <TD><span style={{ color: INTERP_COLORS[row.CE_INTERPRETATION], fontSize: 9.5, fontWeight: 700 }}>{row.CE_INTERPRETATION}</span></TD>
-                    <TD style={{ color: "#64748b" }}>{row.CE_SPREAD}</TD>
-                    <TD style={{ color: "#ef444488" }}>{fmt(row.CE_ASK_QTY)}</TD>
-                    <TD style={{ color: "#ef4444", fontWeight: 600 }}>{row.CE_ASK}</TD>
-                    <TD style={{ color: "#22c55e", fontWeight: 600 }}>{row.CE_BID}</TD>
-                    <TD style={{ color: "#22c55e88" }}>{fmt(row.CE_BID_QTY)}</TD>
-                    <TD style={{ textAlign: "left" }}><OIBar val={row.CE_OI} max={maxCEOI} color="#3b82f6" /></TD>
-                    <TD style={{ color: chgColor(row.CE_CHG_OI) }}>{fmt(row.CE_CHG_OI)}</TD>
-                    <TD style={{ color: chgColor(row.CE_CHG_PCT) }}>{fmtPct(row.CE_CHG_PCT)}</TD>
-                    <TD style={{ color: "#64748b" }}>{fmt(row.CE_VOL)}</TD>
-                    <TD style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 12 }}>{row.CE_LTP}</TD>
-
-                    {/* Strike */}
-                    <td style={{ padding: "4px 10px", textAlign: "center", fontWeight: 700, fontSize: 12, background: atm ? "#22c55e" : "#0f2744", color: atm ? "#020b18" : color, borderLeft: `1px solid ${color}33`, borderRight: `1px solid ${color}33`, borderBottom: "1px solid #060f1e", whiteSpace: "nowrap" }}>
-                      {atm ? "★ " : ""}{fmt(row.strike)}
-                    </td>
-
-                    {/* PE side */}
-                    <TD style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 12 }}>{row.PE_LTP}</TD>
-                    <TD style={{ color: "#64748b" }}>{fmt(row.PE_VOL)}</TD>
-                    <TD style={{ color: chgColor(row.PE_CHG_PCT) }}>{fmtPct(row.PE_CHG_PCT)}</TD>
-                    <TD style={{ color: chgColor(row.PE_CHG_OI) }}>{fmt(row.PE_CHG_OI)}</TD>
-                    <TD style={{ textAlign: "right" }}><OIBar val={row.PE_OI} max={maxPEOI} color="#a78bfa" /></TD>
-                    <TD style={{ color: "#22c55e88" }}>{fmt(row.PE_BID_QTY)}</TD>
-                    <TD style={{ color: "#22c55e", fontWeight: 600 }}>{row.PE_BID}</TD>
-                    <TD style={{ color: "#ef4444", fontWeight: 600 }}>{row.PE_ASK}</TD>
-                    <TD style={{ color: "#ef444488" }}>{fmt(row.PE_ASK_QTY)}</TD>
-                    <TD style={{ color: "#64748b" }}>{row.PE_SPREAD}</TD>
-                    <TD><span style={{ color: INTERP_COLORS[row.PE_INTERPRETATION], fontSize: 9.5, fontWeight: 700 }}>{row.PE_INTERPRETATION}</span></TD>
-                    <TD><Badge val={row.PE_TREND} color={row.PE_TREND === "UP" ? "#22c55e" : "#ef4444"} /></TD>
-                  </tr>
-                );
-              })}
+              {rows.map((row: OIRow) => (
+                <OptionRow key={row.strike} row={row} />
+              ))}
             </tbody>
           </table>
         )}

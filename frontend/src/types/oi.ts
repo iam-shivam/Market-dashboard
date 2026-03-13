@@ -33,21 +33,21 @@ export const INSTRUMENTS: Record<InstrumentSymbol, InstrumentConfig> = {
     label: "NIFTY 50",
     color: "#0ea5e9",
     exchange: "NFO",
-    lotSize: 25,
+    lotSize: 65,
     step: 50,
   },
   BANKNIFTY: {
     label: "BANK NIFTY",
     color: "#f59e0b",
     exchange: "NFO",
-    lotSize: 15,
+    lotSize: 30,
     step: 100,
   },
   SENSEX: {
     label: "SENSEX",
     color: "#a78bfa",
     exchange: "BFO",
-    lotSize: 10,
+    lotSize: 20,
     step: 100,
   },
 };
@@ -67,6 +67,7 @@ export type Trend = "UP" | "DOWN" | "";
 // One row = one strike price with CE on left, PE on right
 export interface OIRow {
   strike: number;
+  isATM: boolean;
   // CALLS
   CE_TREND:           Trend;
   CE_INTERPRETATION:  Interpretation;
@@ -93,14 +94,26 @@ export interface OIRow {
   PE_SPREAD:          number;
   PE_INTERPRETATION:  Interpretation;
   PE_TREND:           Trend;
+  // Support/Resistance are returned at the API level, not per-row
+}
+
+export interface OIMarketTotals {
+  ce_oi: number
+  pe_oi: number
+  pcr: number
 }
 
 // API response wrapper
 export interface OIApiResponse {
   symbol: string;
   expiry: string;
-  data: OIRow[];
   count: number;
+  data: {
+    data: OIRow[]
+    support: number | null
+    resistance: number | null
+    market_totals: OIMarketTotals
+  }
 }
 
 // Colour map for interpretations

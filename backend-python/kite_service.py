@@ -6,6 +6,14 @@ from kiteconnect import KiteConnect
 from dotenv import load_dotenv
 from typing import TypedDict
 import os
+from datetime import datetime, time
+import pytz
+
+IST = pytz.timezone("Asia/Kolkata")
+
+def market_is_open():
+    now = datetime.now(IST).time()
+    return time(9, 15) <= now <= time(15, 30)
 
 load_dotenv()
 
@@ -20,6 +28,7 @@ kite.set_access_token(os.getenv("ACCESS_TOKEN"))
 _last_oi_cache = {}
 class OIRow(TypedDict):
     strike:             float
+    isATM:              bool
     CE_TREND:           str
     CE_INTERPRETATION:  str
     CE_SPREAD:          float
@@ -69,8 +78,9 @@ def interpret(chg_oi: int, ltp_change: float) -> str:
 
 _cache: dict[str, list] = {}
 
-def get_instruments(exchange: str) -> list:
+def get_instruments(exchange: str):
     if exchange not in _cache:
+        print("Loading instruments from Kite...")
         _cache[exchange] = kite.instruments(exchange)
     return _cache[exchange]
 
@@ -82,8 +92,14 @@ INDEX_MAP = {
 
 # ── Main function ─────────────────────────────────────────────────
 
-def get_oi_data(symbol: str, expiry: str) -> list[OIRow]:
+def get_oi_data(symbol: str, expiry: str) -> dict:
     exchange = "BFO" if symbol == "SENSEX" else "NFO"
+    key = f"{symbol}_{expiry}"
+
+    # If market closed → return cached data
+    if not market_is_open() and key in _last_oi_cache:
+        print("Market closed → returning cached option chain")
+        return _last_oi_cache[key]
 
     try:
         # ── 1️⃣ Get underlying index price (for ATM)
@@ -106,15 +122,25 @@ def get_oi_data(symbol: str, expiry: str) -> list[OIRow]:
 
         # ── 2️⃣ Filter instruments
         all_instruments = get_instruments(exchange)
+        # total_ce_oi = 0
+        # total_pe_oi = 0
+
+        # for strike in strikes.values():
+
+        #     ce = strike.get("CE", {})
+        #     pe = strike.get("PE", {})
+
+        #     total_ce_oi += ce.get("oi", 0)
+        #     total_pe_oi += pe.get("oi", 0)
 
         chain = [
             i for i in all_instruments
             if i["name"] == symbol
             and str(i["expiry"]) == expiry
             and i["instrument_type"] in ("CE", "PE")
-            and abs(i["strike"] - atm) <= step * 20   # ±20 strikes
+            # and abs(i["strike"] - atm) <= step * 20   # ±20 strikes
         ]
-
+        
         if not chain:
             print("No instruments found")
             return []
@@ -184,6 +210,7 @@ def get_oi_data(symbol: str, expiry: str) -> list[OIRow]:
                 "trend": "UP" if ltp_change > 0 else "DOWN",
             }
 
+
         # ── 6️⃣ Build final response
         result: list[OIRow] = []
 
@@ -196,6 +223,7 @@ def get_oi_data(symbol: str, expiry: str) -> list[OIRow]:
 
             result.append({
                 "strike": strike,
+                "isATM": strike == atm,
                 "CE_TREND": cg("trend", ""),
                 "CE_INTERPRETATION": cg("interpretation", ""),
                 "CE_SPREAD": cg("spread"),
@@ -223,20 +251,65 @@ def get_oi_data(symbol: str, expiry: str) -> list[OIRow]:
             })
         key = f"{symbol}_{expiry}"
 
-        # save latest successful result
-        if result:
-            _last_oi_cache[key] = result
+        # ── 7️⃣ Calculate TOTAL MARKET OI ─────────────────
 
-        # if empty result and cache exists → return cached data
+        total_ce_oi = 0
+        total_pe_oi = 0
+
+        for strike_data in strikes.values():
+
+            ce = strike_data.get("CE", {})
+            pe = strike_data.get("PE", {})
+
+            total_ce_oi += ce.get("oi", 0)
+            total_pe_oi += pe.get("oi", 0)
+
+        market_pcr = round(total_pe_oi / max(1, total_ce_oi), 2)
+        filtered_rows = [
+            r for r in result
+            if abs(r["strike"] - atm) <= step * 20
+        ]
+        max_ce_oi = 0
+        max_pe_oi = 0
+        resistance = None
+        support = None
+
+        for row in result:  # pylint: disable=invalid-name
+
+            if row["CE_OI"] > max_ce_oi:
+                max_ce_oi = row["CE_OI"]
+                resistance = row["strike"]
+
+            if row["PE_OI"] > max_pe_oi:
+                max_pe_oi = row["PE_OI"]
+                support = row["strike"]
+
+        # save latest successful result (store full response dict)
+                resp = {
+            "data": filtered_rows,
+            "support": support,
+            "resistance": resistance,
+
+            "market_totals": {
+                "ce_oi": total_ce_oi,
+                "pe_oi": total_pe_oi,
+                "pcr": market_pcr
+            }
+        }
+        if result:
+            _last_oi_cache[key] = resp
+
+        # if empty result and cache exists → return cached response
         if not result and key in _last_oi_cache:
             print("Returning cached option chain")
             return _last_oi_cache[key]
-
-        return result
+        # print("Saving to cache:", key)
+        # print("++++++++", resp)
+        return resp
 
     except Exception as e:
         print("OI DATA ERROR:", e)
-        return []
+        return {"data": [], "support": None, "resistance": None}
 
 def get_expiries(symbol: str) -> list[str]:
     """Return the next 6 expiry dates for a symbol."""
